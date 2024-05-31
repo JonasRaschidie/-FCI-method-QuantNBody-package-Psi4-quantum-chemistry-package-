@@ -1,0 +1,94 @@
+# ==========================================================================================
+# 
+# A code to demonstrate how to implement a FCI method with 
+# the QuantNBody package on the interaction of carbon atom (Methylation) with Nitrogen atom (Nucleic acid) .
+# this computation model is a simple model for Monomethylation of histon H3 at Lysine 4 (H3K4me1)
+# according to (https://doi.org/10.1016/j.molcel.2017.04.018)
+# The results are compared to the FCI method already implemented in the
+# Psi4 quantum chemistry package.
+#
+# Author : Jonas Raschidie
+# ==========================================================================================
+
+import psi4
+import numpy as np
+import scipy.linalg
+import math
+import matplotlib.pyplot as plt
+import quantnbody.fermionic.tools
+
+def run_fci_psi4(string_geo, basisset):
+    '''
+    Function to run a Full Configuration Interaction (FCI) calculation with Psi4.
+    Determines the appropriate reference (RHF/ROHF) based on the molecule's multiplicity.
+    '''
+    psi4.core.clean()
+    mol = psi4.geometry(string_geo)
+    
+    # Determine the appropriate reference type (RHF/ROHF) based on the molecule's multiplicity
+    ref_type = 'rhf' if mol.multiplicity() == 1 else 'rohf'
+    
+    # Set Psi4 options for the calculation
+    psi4.set_options({'basis': basisset,
+                      'reference': ref_type,
+                      'num_roots': 2,
+                      'guess': 'auto',
+                      'e_convergence': 1e-8,
+                      'd_convergence': 1e-8})
+
+    # Perform SCF and FCI calculations
+    e_scf, wfn_scf = psi4.energy('SCF', return_wfn=True)
+    efci, fci_wfn = psi4.energy('FCI', return_wfn=True)
+    
+    # Get the FCI energies
+    e0_fci = fci_wfn.variable('CI ROOT 0 TOTAL ENERGY')  
+    e1_fci = fci_wfn.variable('CI ROOT 1 TOTAL ENERGY')
+
+    return e0_fci, e1_fci
+
+# Continue with the rest of the simulation setup and plotting code...
+# Setting output file for Psi4
+psi4.core.set_output_file("output_Psi4.txt", False)
+
+# Simulation parameters
+basisset = 'sto-3g'
+nelec_active = 4
+n_mo = 6
+
+dim_h = math.comb(2 * n_mo, nelec_active)  # Computation of dimensionality using Python conventions
+
+# Building n-body basis and operators
+nbody_basis = quantnbody.fermionic.tools.build_nbody_basis(n_mo, nelec_active)
+a_dagger_a = quantnbody.fermionic.tools.build_operator_a_dagger_a(nbody_basis)
+s_2, s_p, s_z = quantnbody.fermionic.tools.build_s2_sz_splus_operator(a_dagger_a)
+
+# Generating a range of interatomic distances
+list_r = np.linspace(0.25, 2.2, 15)
+
+e_0_qnb = []
+e_1_qnb = []
+
+# Performing FCI calculations for each distance
+for r in list_r:    
+    string_geo = f"""C 0 0 0
+                     N  0 0 {r}
+                     symmetry c1"""
+    
+    e0_fci, e1_fci = run_fci_psi4(string_geo, basisset)
+    e_0_qnb.append(e0_fci)
+    e_1_qnb.append(e1_fci)
+
+# Plotting results
+plt.rc('font', family='Helvetica')
+plt.rc('xtick', labelsize='xx-large')
+plt.rc('ytick', labelsize='xx-large')
+plt.rc('lines', linewidth=2)
+
+fig, ax1 = plt.subplots(nrows=1, ncols=1, figsize=(8, 6))
+ax1.plot(list_r, e_0_qnb, color='red', label='$E_0^{qnb}$')
+ax1.plot(list_r, e_1_qnb, color='blue', label='$E_1^{qnb}$')
+ax1.set_xlabel('Intertatomic distance $r_{C-N}$ ($\AA$)', size=22)
+ax1.set_ylabel('Energy (Ha)', size=22)
+ax1.legend(fontsize='x-large')
+ax1.grid()
+plt.show()
